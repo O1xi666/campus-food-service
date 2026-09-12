@@ -16,6 +16,14 @@ spring:
    host: ${sky.redis.host}
    port: ${sky.redis.port}
    database: ${sky.redis.database}
+   password: ${sky.redis.password:}
+   timeout: 3000ms
+   jedis:
+     pool:
+       max-active: 50
+       max-idle: 20
+       min-idle: 5
+       max-wait: 1000ms
   rabbitmq:
     host: localhost
     port: 5672
@@ -42,12 +50,29 @@ logging:
       mapper: debug
       service: info
       controller: info
-    # 👇 注意缩进！不要缩进到 com.sky 里面去
-    org.springframework.web.servlet: DEBUG
-    org.springframework.web.servlet.resource: DEBUG
+    org.springframework.web.servlet: INFO
+    org.springframework.web.servlet.resource: INFO
 
 
 sky:
+  cache:
+    # 压测基线开关：false 时跳过 L1/L2 缓存与逻辑过期缓存，直接回源数据库
+    enabled: ${SKY_CACHE_ENABLED:true}
+    local:
+      # L1 本地缓存（Caffeine）
+      maximum-size: 1000
+      expire-seconds: 300
+    redis:
+      # L2 Redis 缓存的基础 TTL
+      time-to-live: 1800000
+      # TTL 随机抖动区间（防雪崩）：实际 TTL = time-to-live ± 该值
+      ttl-jitter-ms: 300000
+      # 空值缓存 TTL（防穿透，兜底布隆过滤器）
+      null-cache-ttl-seconds: 60
+      cache-null-values: false
+    bloom:
+      # 布隆过滤器开关（防穿透）。压测对照时也可以单独关掉。
+      enabled: ${SKY_BLOOM_ENABLED:true}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     host: localhost
@@ -55,10 +80,18 @@ sky:
     database: sky_take_out
     username: root
     password: ${SKY_DB_PASSWORD:please-set-in-application-dev.yml}
+  redis:
+    host: localhost
+    port: 6379
+    database: 0
+    password: ${SKY_REDIS_PASSWORD:}
   ai:
-    qwen:
-      api-key: ${AI_QWEN_API_KEY:default-fake-key}
-      base-url: ${AI_QWEN_BASE_URL:https://dashscope.aliyuncs.com/api/v1}
+    # openai = OpenAI 兼容协议（DeepSeek 等厂商）；dashscope = 阿里云百炼原生协议
+    provider: ${SKY_AI_PROVIDER:openai}
+    # API Key 一律通过环境变量注入，不写进仓库
+    api-key: ${SKY_AI_API_KEY:}
+    base-url: ${SKY_AI_BASE_URL:https://api.deepseek.com}
+    model: ${SKY_AI_MODEL:deepseek-chat}
 
   jwt:
     admin-secret-key: itcast

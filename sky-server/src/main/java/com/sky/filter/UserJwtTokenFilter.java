@@ -23,6 +23,9 @@ public class UserJwtTokenFilter extends OncePerRequestFilter {
     private static final List<String> EXCLUDE_PATHS = Arrays.asList(
             "/user/auth/**",
             "/user/dish/**",
+            // 点餐页面本身是静态资源，浏览器地址栏带不了 token，
+            // 页面里的接口调用（/user/ai/**、/user/shoppingCart/**）仍然需要 token
+            "/user/ai/page",
             "/doc.html",
             "/webjars/**"
     );

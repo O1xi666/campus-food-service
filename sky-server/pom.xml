@@ -35,7 +35,7 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
-            <!-- 1. 鎺掗櫎榛樿鐨?lettuce -->
+            <!-- 1. 排除默认的 lettuce（注意：这个 starter 只能声明一次，否则 lettuce 会被重新引回来） -->
             <exclusions>
                 <exclusion>
                     <groupId>io.lettuce</groupId>
@@ -43,7 +43,7 @@
                 </exclusion>
             </exclusions>
         </dependency>
-        <!-- 2. 寮曞叆 jedis -->
+        <!-- 2. 引入 jedis -->
         <dependency>
             <groupId>redis.clients</groupId>
             <artifactId>jedis</artifactId>
@@ -91,7 +91,7 @@
             <groupId>com.github.pagehelper</groupId>
             <artifactId>pagehelper-spring-boot-starter</artifactId>
         </dependency>
-        <!-- 1. Spring缂撳瓨鏍稿績锛堢埗pom宸茬鐞嗙増鏈級 -->
+        <!-- 1. Spring缓存核心（父pom已管理版本） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-cache</artifactId>
@@ -114,14 +114,10 @@
             <artifactId>knife4j-spring-boot-starter</artifactId>
         </dependency>
 
+        <!-- L1 本地缓存：Caffeine（版本由 spring-boot-starter-parent 管理） -->
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-redis</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-cache</artifactId>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
         </dependency>
 
         <dependency>
