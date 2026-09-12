@@ -11,16 +11,16 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.cache.annotation.EnableCaching;
 
 @SpringBootApplication
-@EnableTransactionManagement //寮€鍚敞瑙ｆ柟寮忕殑浜嬪姟绠＄悊
+@EnableTransactionManagement //开启注解方式的事务管理
 @Slf4j
 @EnableCaching
 @EnableAsync
 @EnableScheduling
 public class SkyApplication {
     public static void main(String[] args) {
-        // 鍚姩椤圭洰骞惰幏鍙栦笂涓嬫枃锛堟牳蹇冧慨鏀癸細鎶婂師鏉ョ殑涓€琛屾媶鎴愪袱琛岋紝鑾峰彇涓婁笅鏂囧璞★級
+        // 启动项目并获取上下文（核心修改：把原来的一行拆成两行，获取上下文对象）
         ConfigurableApplicationContext context = SpringApplication.run(SkyApplication.class, args);
-        // 鑾峰彇鐜閰嶇疆瀵硅薄锛岀敤鏉ヨ鍙杫ml閲岀殑閰嶇疆
+        // 获取环境配置对象，用来读取yml里的配置
         Environment env = context.getEnvironment();
 
         // 打印项目实际读取的数据库配置（关键：用log.info打印，和你的日志风格一致）

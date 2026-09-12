@@ -12,7 +12,7 @@ import java.io.Serializable;
 @NoArgsConstructor
 @Builder
 public class GoodsSalesDTO implements Serializable {
-    //鍟嗗搧鍚嶇О
+    //商品名称
     private String name;
 
     //閿€閲?

@@ -1,0 +1,32 @@
+# ============================================================
+# 开发环境配置示例
+#
+# 使用方法：
+#   copy sky-server\src\main\resources\application-dev.example.yml ^
+#        sky-server\src\main\resources\application-dev.yml
+# 然后把下面的密码改成你本机的真实值。
+#
+# application-dev.yml 已在 .gitignore 中排除，不会提交到仓库。
+# 所有敏感信息（数据库密码 / Redis 密码 / AI Key）也支持用环境变量注入：
+#   SKY_DB_PASSWORD、SKY_REDIS_PASSWORD、SKY_AI_API_KEY
+# ============================================================
+sky:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    host: localhost
+    port: 3306
+    database: sky_take_out
+    username: root
+    password: your-mysql-password
+
+  redis:
+    host: localhost
+    port: 6379
+    database: 0
+    # Redis 没设密码就留空
+    password: your-redis-password
+  cache:
+    redis:
+      # L2 缓存 TTL（毫秒）
+      time-to-live: 3600000
+      cache-null-values: false

@@ -1,5 +1,112 @@
+-- ============================================================
+--  测试数据（可重复执行）
+--
+--    · 2 个商家 / 10 个分类 / 30 道菜品 / 24 条菜品口味
+--    · 4 个 C 端用户，其中 test003 / 123456 与 test / 123456 可直接登录
+--      （test001、test002 密码为空，仅用于关联历史订单）
+--    · 2 个管理端员工，其中 admin / 123456 可直接登录
+--    · 60 笔历史订单 + 142 条订单明细（AI 用户画像与经营分析的数据来源）
+--    · 3 条默认收货地址（下单链路必需，submit 时会校验默认地址）
+--
+--  说明：开头先 DELETE 再 INSERT，所以可以重复执行；
+--        所有主键都显式指定，保证与订单/明细中的引用一致。
+-- ============================================================
+
+USE sky_take_out;
+
+SET NAMES utf8mb4;
+
+-- 清理旧数据（先子表后主表）
 DELETE FROM order_detail WHERE order_id >= 100;
 DELETE FROM orders WHERE id >= 100;
+DELETE FROM address_book WHERE id IN (2, 3, 4);
+DELETE FROM dish_flavor;
+DELETE FROM dish;
+DELETE FROM category;
+DELETE FROM merchant;
+DELETE FROM `user`;
+DELETE FROM employee;
+
+-- ============================================================
+-- 一、基础数据：商家 / 分类 / 菜品 / 口味 / 用户 / 员工
+-- ============================================================
+INSERT INTO `merchant` (`id`, `name`, `phone`, `address`, `status`, `create_time`, `update_time`) VALUES (1,'蜀味轩',NULL,NULL,1,'2026-06-13 21:15:34','2026-06-13 21:15:34');
+INSERT INTO `merchant` (`id`, `name`, `phone`, `address`, `status`, `create_time`, `update_time`) VALUES (2,'湘菜人家',NULL,NULL,1,'2026-06-13 21:15:34','2026-06-13 21:15:34');
+
+INSERT INTO `category` (`id`, `type`, `name`, `sort`, `status`, `create_time`, `update_time`, `create_user`, `update_user`) VALUES (11,1,'酒水饮料',10,1,'2022-06-09 22:09:18','2022-06-09 22:09:18',1,1);
+INSERT INTO `category` (`id`, `type`, `name`, `sort`, `status`, `create_time`, `update_time`, `create_user`, `update_user`) VALUES (12,1,'传统主食',9,1,'2022-06-09 22:09:32','2022-06-09 22:18:53',1,1);
+INSERT INTO `category` (`id`, `type`, `name`, `sort`, `status`, `create_time`, `update_time`, `create_user`, `update_user`) VALUES (13,2,'人气套餐',12,1,'2022-06-09 22:11:38','2022-06-10 11:04:40',1,1);
+INSERT INTO `category` (`id`, `type`, `name`, `sort`, `status`, `create_time`, `update_time`, `create_user`, `update_user`) VALUES (15,2,'商务套餐',13,1,'2022-06-09 22:14:10','2022-06-10 11:04:48',1,1);
+INSERT INTO `category` (`id`, `type`, `name`, `sort`, `status`, `create_time`, `update_time`, `create_user`, `update_user`) VALUES (16,1,'蜀味烤鱼',4,1,'2022-06-09 22:15:37','2022-08-31 14:27:25',1,1);
+INSERT INTO `category` (`id`, `type`, `name`, `sort`, `status`, `create_time`, `update_time`, `create_user`, `update_user`) VALUES (17,1,'蜀味牛蛙',5,1,'2022-06-09 22:16:14','2022-08-31 14:39:44',1,1);
+INSERT INTO `category` (`id`, `type`, `name`, `sort`, `status`, `create_time`, `update_time`, `create_user`, `update_user`) VALUES (18,1,'特色蒸菜',6,1,'2022-06-09 22:17:42','2022-06-09 22:17:42',1,1);
+INSERT INTO `category` (`id`, `type`, `name`, `sort`, `status`, `create_time`, `update_time`, `create_user`, `update_user`) VALUES (19,1,'新鲜时蔬',7,1,'2022-06-09 22:18:12','2022-06-09 22:18:28',1,1);
+INSERT INTO `category` (`id`, `type`, `name`, `sort`, `status`, `create_time`, `update_time`, `create_user`, `update_user`) VALUES (20,1,'水煮鱼',8,1,'2022-06-09 22:22:29','2022-06-09 22:23:45',1,1);
+INSERT INTO `category` (`id`, `type`, `name`, `sort`, `status`, `create_time`, `update_time`, `create_user`, `update_user`) VALUES (21,1,'汤类',11,1,'2022-06-10 10:51:47','2022-06-10 10:51:47',1,1);
+
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (46,'王老吉',11,6.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/41bfcacf-7ad4-4927-8b26-df366553a94c.png','',1,'2022-06-09 22:40:47','2022-06-09 22:40:47',1,1,100,1);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (47,'北冰洋',11,4.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/4451d4be-89a2-4939-9c69-3a87151cb979.png','还是小时候的味道',1,'2022-06-10 09:18:49','2022-06-10 09:18:49',1,1,100,1);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (48,'雪花啤酒',11,4.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/bf8cbfc1-04d2-40e8-9826-061ee41ab87c.png','',1,'2022-06-10 09:22:54','2022-06-10 09:22:54',1,1,100,1);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (49,'米饭',12,2.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/76752350-2121-44d2-b477-10791c23a8ec.png','精选五常大米',1,'2022-06-10 09:30:17','2022-06-10 09:30:17',1,1,100,2);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (50,'馒头',12,1.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/475cc599-8661-4899-8f9e-121dd8ef7d02.png','优质面粉',1,'2022-06-10 09:34:28','2022-06-10 09:34:28',1,1,100,2);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (51,'老坛酸菜鱼',20,56.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/4a9cefba-6a74-467e-9fde-6e687ea725d7.png','原料：汤，草鱼，酸菜',1,'2022-06-10 09:40:51','2022-06-10 09:40:51',1,1,100,1);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (52,'经典酸菜鮰鱼',20,66.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/5260ff39-986c-4a97-8850-2ec8c7583efc.png','原料：酸菜，江团，鮰鱼',1,'2022-06-10 09:46:02','2022-06-10 09:46:02',1,1,100,1);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (53,'蜀味水煮草鱼',20,38.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/a6953d5a-4c18-4b30-9319-4926ee77261f.png','原料：草鱼，汤',1,'2022-06-10 09:48:37','2022-06-10 09:48:37',1,1,100,1);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (54,'清炒小油菜',19,18.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/3613d38e-5614-41c2-90ed-ff175bf50716.png','原料：小油菜',1,'2022-06-10 09:51:46','2022-06-10 09:51:46',1,1,100,2);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (55,'蒜蓉娃娃菜',19,18.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/4879ed66-3860-4b28-ba14-306ac025fdec.png','原料：蒜，娃娃菜',1,'2022-06-10 09:53:37','2022-06-10 09:53:37',1,1,100,2);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (56,'清炒西兰花',19,18.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/e9ec4ba4-4b22-4fc8-9be0-4946e6aeb937.png','原料：西兰花',1,'2022-06-10 09:55:44','2022-06-10 09:55:44',1,1,100,2);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (57,'炝炒圆白菜',19,18.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/22f59feb-0d44-430e-a6cd-6a49f27453ca.png','原料：圆白菜',1,'2022-06-10 09:58:35','2022-06-10 09:58:35',1,1,100,2);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (58,'清蒸鲈鱼',18,98.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/c18b5c67-3b71-466c-a75a-e63c6449f21c.png','原料：鲈鱼',1,'2022-06-10 10:12:28','2022-06-10 10:12:28',1,1,100,1);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (59,'东坡肘子',18,138.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/a80a4b8c-c93e-4f43-ac8a-856b0d5cc451.png','原料：猪肘棒',1,'2022-06-10 10:24:03','2022-06-10 10:24:03',1,1,100,2);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (60,'梅菜扣肉',18,58.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/6080b118-e30a-4577-aab4-45042e3f88be.png','原料：猪肉，梅菜',1,'2022-06-10 10:26:03','2022-06-10 10:26:03',1,1,100,2);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (61,'剁椒鱼头',18,66.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/13da832f-ef2c-484d-8370-5934a1045a06.png','原料：鲢鱼，剁椒',1,'2022-06-10 10:28:54','2022-06-10 10:28:54',1,1,100,1);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (62,'金汤酸菜牛蛙',17,88.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/7694a5d8-7938-4e9d-8b9e-2075983a2e38.png','原料：鲜活牛蛙，酸菜',1,'2022-06-10 10:33:05','2022-06-10 10:33:05',1,1,100,1);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (63,'香锅牛蛙',17,88.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/f5ac8455-4793-450c-97ba-173795c34626.png','配料：鲜活牛蛙，莲藕，青笋',1,'2022-06-10 10:35:40','2022-06-10 10:35:40',1,1,100,1);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (64,'馋嘴牛蛙',17,88.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/7a55b845-1f2b-41fa-9486-76d187ee9ee1.png','配料：鲜活牛蛙，丝瓜，黄豆芽',1,'2022-06-10 10:37:52','2022-06-10 10:37:52',1,1,100,1);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (65,'草鱼2斤',16,68.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/b544d3ba-a1ae-4d20-a860-81cb5dec9e03.png','原料：草鱼，黄豆芽，莲藕',1,'2022-06-10 10:41:08','2022-06-10 10:41:08',1,1,100,1);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (66,'江团鱼2斤',16,119.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/a101a1e9-8f8b-47b2-afa4-1abd47ea0a87.png','配料：江团鱼，黄豆芽，莲藕',1,'2022-06-10 10:42:42','2022-06-10 10:42:42',1,1,100,1);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (67,'鮰鱼2斤',16,72.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/8cfcc576-4b66-4a09-ac68-ad5b273c2590.png','原料：鮰鱼，黄豆芽，莲藕',1,'2022-06-10 10:43:56','2022-06-10 10:43:56',1,1,99,1);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (68,'鸡蛋汤',21,4.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/c09a0ee8-9d19-428d-81b9-746221824113.png','配料：鸡蛋，紫菜',1,'2022-06-10 10:54:25','2022-06-10 10:54:25',1,1,100,2);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (69,'平菇豆腐汤',21,6.00,NULL,NULL,'https://sky-itcast.oss-cn-beijing.aliyuncs.com/16d0a3d6-2253-4cfc-9b49-bf7bd9eb2ad2.png','配料：豆腐，平菇',1,'2022-06-10 10:55:02','2022-06-10 10:55:02',1,1,100,2);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (70,'宫保鸡丁',1,28.00,'辣','热销',NULL,'经典川菜，鸡肉滑嫩',1,NULL,NULL,NULL,NULL,100,2);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (71,'麻婆豆腐',1,18.00,'辣','实惠',NULL,'麻辣鲜香，超级下饭',1,NULL,NULL,NULL,NULL,100,2);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (72,'清炒时蔬',1,15.00,'清淡','健康',NULL,'新鲜时蔬，低脂健康',1,NULL,NULL,NULL,NULL,100,2);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (73,'水煮鱼',1,68.00,'特辣','招牌',NULL,'鱼肉滑嫩，麻辣过瘾',1,NULL,NULL,NULL,NULL,100,1);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (74,'番茄鸡蛋盖饭',1,22.00,'微甜','家常',NULL,'酸甜可口，快速出餐',1,NULL,NULL,NULL,NULL,100,2);
+INSERT INTO `dish` (`id`, `name`, `category_id`, `price`, `flavor`, `category`, `image`, `description`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `stock`, `merchant_id`) VALUES (75,'红烧肉',1,35.00,'甜咸','经典',NULL,'肥而不腻，入口即化',1,NULL,NULL,NULL,NULL,100,2);
+
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (40,10,'甜味','[\"无糖\",\"少糖\",\"半糖\",\"多糖\",\"全糖\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (41,7,'忌口','[\"不要葱\",\"不要蒜\",\"不要香菜\",\"不要辣\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (42,7,'温度','[\"热饮\",\"常温\",\"去冰\",\"少冰\",\"多冰\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (45,6,'忌口','[\"不要葱\",\"不要蒜\",\"不要香菜\",\"不要辣\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (46,6,'辣度','[\"不辣\",\"微辣\",\"中辣\",\"重辣\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (47,5,'辣度','[\"不辣\",\"微辣\",\"中辣\",\"重辣\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (48,5,'甜味','[\"无糖\",\"少糖\",\"半糖\",\"多糖\",\"全糖\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (49,2,'甜味','[\"无糖\",\"少糖\",\"半糖\",\"多糖\",\"全糖\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (50,4,'甜味','[\"无糖\",\"少糖\",\"半糖\",\"多糖\",\"全糖\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (51,3,'甜味','[\"无糖\",\"少糖\",\"半糖\",\"多糖\",\"全糖\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (52,3,'忌口','[\"不要葱\",\"不要蒜\",\"不要香菜\",\"不要辣\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (86,52,'忌口','[\"不要葱\",\"不要蒜\",\"不要香菜\",\"不要辣\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (87,52,'辣度','[\"不辣\",\"微辣\",\"中辣\",\"重辣\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (88,51,'忌口','[\"不要葱\",\"不要蒜\",\"不要香菜\",\"不要辣\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (89,51,'辣度','[\"不辣\",\"微辣\",\"中辣\",\"重辣\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (92,53,'忌口','[\"不要葱\",\"不要蒜\",\"不要香菜\",\"不要辣\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (93,53,'辣度','[\"不辣\",\"微辣\",\"中辣\",\"重辣\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (94,54,'忌口','[\"不要葱\",\"不要蒜\",\"不要香菜\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (95,56,'忌口','[\"不要葱\",\"不要蒜\",\"不要香菜\",\"不要辣\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (96,57,'忌口','[\"不要葱\",\"不要蒜\",\"不要香菜\",\"不要辣\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (97,60,'忌口','[\"不要葱\",\"不要蒜\",\"不要香菜\",\"不要辣\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (101,66,'辣度','[\"不辣\",\"微辣\",\"中辣\",\"重辣\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (102,67,'辣度','[\"不辣\",\"微辣\",\"中辣\",\"重辣\"]');
+INSERT INTO `dish_flavor` (`id`, `dish_id`, `name`, `value`) VALUES (103,65,'辣度','[\"不辣\",\"微辣\",\"中辣\",\"重辣\"]');
+
+INSERT INTO `user` (`id`, `openid`, `name`, `phone`, `sex`, `id_number`, `avatar`, `create_time`, `password`) VALUES (4,NULL,'test001',NULL,NULL,NULL,NULL,'2026-04-15 21:12:20',NULL);
+INSERT INTO `user` (`id`, `openid`, `name`, `phone`, `sex`, `id_number`, `avatar`, `create_time`, `password`) VALUES (5,NULL,'test002',NULL,NULL,NULL,NULL,'2026-04-15 21:19:44',NULL);
+INSERT INTO `user` (`id`, `openid`, `name`, `phone`, `sex`, `id_number`, `avatar`, `create_time`, `password`) VALUES (6,NULL,'test003',NULL,NULL,NULL,NULL,'2026-04-15 21:28:17','e10adc3949ba59abbe56e057f20f883e');
+INSERT INTO `user` (`id`, `openid`, `name`, `phone`, `sex`, `id_number`, `avatar`, `create_time`, `password`) VALUES (7,NULL,'test',NULL,NULL,NULL,NULL,'2026-07-22 15:46:05','e10adc3949ba59abbe56e057f20f883e');
+
+INSERT INTO `employee` (`id`, `name`, `username`, `password`, `phone`, `sex`, `id_number`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `merchant_id`) VALUES (1,'管理员','admin','e10adc3949ba59abbe56e057f20f883e','13812312312','1','110101199001010047',1,'2022-02-15 15:51:20','2022-02-17 09:16:20',10,1,1);
+INSERT INTO `employee` (`id`, `name`, `username`, `password`, `phone`, `sex`, `id_number`, `status`, `create_time`, `update_time`, `create_user`, `update_user`, `merchant_id`) VALUES (2,'张三','zhangsan','e10adc3949ba59abbe56e057f20f883e','13812345678','男','110101199001011234',1,'2026-03-14 21:30:16','2026-03-14 21:30:16',NULL,NULL,1);
 
 -- 订单
 INSERT INTO orders (id, number, status, user_id, address_book_id, order_time, checkout_time, pay_method, pay_status, amount, merchant_id, phone, address, user_name, consignee, delivery_status, tableware_status)
@@ -408,3 +515,17 @@ INSERT INTO order_detail (id, name, order_id, dish_id, number, amount)
 VALUES (641, '米饭', 160, 49, 2, 4.00);
 INSERT INTO order_detail (id, name, order_id, dish_id, number, amount)
 VALUES (642, '麻婆豆腐', 160, 71, 1, 18.00);
+-- ============================================================
+-- 收货地址：下单链路必需（/user/order/submit/cart 会校验默认地址）
+-- ============================================================
+DELETE FROM address_book WHERE id IN (2, 3, 4);
+INSERT INTO address_book (id, user_id, consignee, phone, province_name, city_name, district_name, detail, is_default)
+VALUES (2, 4, '测试同学A', '13800000004', '陕西省', '西安市', '长安区', '西安电子科技大学 竹园公寓 3 号楼', 1);
+INSERT INTO address_book (id, user_id, consignee, phone, province_name, city_name, district_name, detail, is_default)
+VALUES (3, 5, '测试同学B', '13800000005', '陕西省', '西安市', '长安区', '西安电子科技大学 海棠公寓 5 号楼', 1);
+INSERT INTO address_book (id, user_id, consignee, phone, province_name, city_name, district_name, detail, is_default)
+VALUES (4, 6, '测试同学C', '13800000006', '陕西省', '西安市', '长安区', '西安电子科技大学 丁香公寓 1 号楼', 1);
+-- ============================================================
+-- 三、统一初始库存，保证压测 / 演示的起点一致
+-- ============================================================
+UPDATE dish SET stock = 100;
