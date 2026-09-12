@@ -18,7 +18,7 @@
 | 4 | 缓存雪崩防护 | 装饰 `RedisCacheWriter`，给每个 key 的 TTL 叠加随机抖动（默认 ±5 分钟） | `sky-server/src/main/java/com/sky/cache/JitterRedisCacheWriter.java` |
 | 5 | 缓存与数据库一致性 | 先更新数据库、再删缓存（`@CacheEvict` + 手动淘汰逻辑过期 key） | `sky-server/src/main/java/com/sky/service/impl/DishServiceImpl.java` |
 | 6 | 接口限流 | 自定义 `@RateLimit` 注解 + AOP + Redis ZSET 滑动窗口（Lua 原子执行），支持全局 / IP / 用户三维度 | `annotation/RateLimit.java`、`aspect/RateLimitAspect.java`、`resources/lua/sliding_window.lua` |
-| 7 | 秒杀下单 | Redis 库存预热 + Lua 原子预扣减 + RabbitMQ 异步落库 + 定时对账回补 | `service/impl/OrderServiceImpl.java`、`resources/lua/deduct_stock.lua`、`mq/OrderConsumer.java`、`task/StockReconciliationTask.java` |
+| 7 | 秒杀下单 | Redis 库存预扣减（Lua 原子执行，key 缺失时用 DB 库存惰性补建，上线前可由发布脚本预热） + RabbitMQ 异步落库 + 定时对账回补 | `service/impl/OrderServiceImpl.java`、`resources/lua/deduct_stock.lua`、`mq/OrderConsumer.java`、`task/StockReconciliationTask.java` |
 | 8 | 统计接口全异步 | 线程池 + 任务表（状态机）+ 失败重试 + 幂等抢占 + WebSocket 站内通知 | `task/BusinessAnalysisTaskRunner.java`、`service/impl/NotificationService.java`、`websocket/NotificationWebSocketServer.java` |
 | 9 | AI 三层推荐链路 | 用户画像召回 → 规则排序 → 大模型 Prompt 生成 | `service/impl/AIServiceImpl.java` |
 | 10 | AI 经营分析 | 真实库表聚合（营业额 / 客单价 / 销量 Top-Bottom）后交给大模型生成日报 | `service/impl/DataAnalysisServiceImpl.java` |
