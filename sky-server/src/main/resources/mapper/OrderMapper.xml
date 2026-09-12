@@ -58,11 +58,12 @@
 
 
     <select id="selectAllSalesRank" resultType="com.sky.dto.GoodsSalesDTO">
-        select od.dish_id as dishId, od.name, sum(od.number) as number
+        select od.dish_id as dishId, od.name, sum(od.number) as number, o.merchant_id as merchantId
         from order_detail od
         join orders o on od.order_id = o.id
         where o.status = 5 and o.pay_status = 1
-        group by od.dish_id, od.name
+          and o.merchant_id is not null
+        group by od.dish_id, od.name, o.merchant_id
         order by number desc
     </select>
 </mapper>

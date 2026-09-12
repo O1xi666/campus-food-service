@@ -1,8 +1,10 @@
 package com.sky.config;
 
 import org.springframework.amqp.core.*;
+import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.amqp.support.converter.DefaultJackson2JavaTypeMapper;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -42,11 +44,37 @@ public class RabbitMQConfig {
                 .with("order.dlx");
     }
 
-    /** JSON 消息转换器，确保对象正确序列化/反序列化 */
+    /** JSON 消息转换器：生产端与消费端共用同一份配置 */
     @Bean
-    public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory) {
+    public Jackson2JsonMessageConverter jackson2JsonMessageConverter() {
+        Jackson2JsonMessageConverter converter = new Jackson2JsonMessageConverter();
+        DefaultJackson2JavaTypeMapper typeMapper = new DefaultJackson2JavaTypeMapper();
+        typeMapper.setTrustedPackages("com.sky", "java.util", "java.math");
+        converter.setJavaTypeMapper(typeMapper);
+        return converter;
+    }
+
+    /** 生产端：把消息序列化成 JSON */
+    @Bean
+    public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory,
+                                         Jackson2JsonMessageConverter jackson2JsonMessageConverter) {
         RabbitTemplate template = new RabbitTemplate(connectionFactory);
-        template.setMessageConverter(new Jackson2JsonMessageConverter());
+        template.setMessageConverter(jackson2JsonMessageConverter);
         return template;
+    }
+
+    /**
+     * 消费端：@RabbitListener 默认使用 SimpleMessageConverter（JDK 序列化），
+     * 与生产端的 JSON 转换器不匹配，消费者会拿到 byte[] 并抛 MessageConversionException，
+     * 订单永远落不了库。必须把同一个 JSON 转换器显式装配到监听容器工厂上。
+     */
+    @Bean
+    public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(
+            ConnectionFactory connectionFactory,
+            Jackson2JsonMessageConverter jackson2JsonMessageConverter) {
+        SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
+        factory.setConnectionFactory(connectionFactory);
+        factory.setMessageConverter(jackson2JsonMessageConverter);
+        return factory;
     }
 }
