@@ -94,6 +94,37 @@ benchmark/results-true.jtl     # 有缓存原始数据
 - **吞吐量两边都是 ~200 req/s，说明瓶颈不在数据库**，而在压测客户端与应用同机竞争 CPU。如果要展示吞吐差距，需要把 MySQL 换到独立机器、把数据量放大到十万级。
 - **结论口径**：在单机小数据量下，这套缓存方案的作用是 **"削减 99.9% 的数据库查询"**；响应时间的收益会随数据量与并发上升而放大。
 
+### 秒杀下单链路（`/user/order/seckill`）：Redis 预扣减 vs 直接打库
+
+- **场景**：单机；**200 并发 × 5 轮 = 1000 次请求抢 100 份库存**（`dish.stock = 100`）。每组先跑一轮预热（JVM JIT + 连接池）不计入，再取 3~6 轮结果的**中位数**
+- **对照组**：
+  - `sky.seckill.mode=direct-db`：不预热、不走 Redis/MQ。每个请求都在一个事务里 `SELECT` 菜品 → 条件扣减 `UPDATE dish SET stock = stock - 1 WHERE id = ? AND stock >= ?` → 写 `orders` / `order_detail`，等价于"没有缓存、全部直接打库"的实现
+  - `sky.seckill.mode=redis`（默认）：预热 `dish:stock:68 = 100` → Redis + Lua 原子预扣减 → 抢到库存的才回源 + 投递 MQ → 消费者异步落库
+- **DB 指标**：MySQL `SHOW GLOBAL STATUS` 中 `Com_select` / `Com_insert` / `Com_update` 在压测前后的差值；行锁取 `Innodb_row_lock_waits` / `Innodb_row_lock_time`
+- **SQL 明细核对**：用 `performance_schema.events_statements_summary_by_digest` 前后差值，确认两种模式下真正执行的 SQL 条数与类型（见 `benchmark/seckill-sql-breakdown.txt`）
+
+| 指标 | 无缓存（direct-db） | 有缓存（Redis 预扣减） | 变化 |
+|------|--------------------|----------------------|------|
+| 接口吞吐 | 174 req/s | **274.6 req/s** | **↑ 58%** |
+| 平均响应时间 | 729.2 ms | **214.4 ms** | **↓ 70.6%** |
+| P50 | 764 ms | **122.5 ms** | ↓ 84% |
+| P90 | 877.5 ms | **258 ms** | ↓ 70.6% |
+| 超过 500ms 的请求占比 | 908 / 1000（90.8%） | **72 / 1000（7.2%）** | **↓ 92%** |
+| **库存扣减 UPDATE 次数** | **1000** | **100** | **↓ 90%** |
+| **进入写事务的请求数** | **1000** | **100** | **↓ 90%** |
+| 数据库总语句数（select+insert+update） | 4405 | 805 | ↓ 81.7% |
+| 数据库 QPS | 766.4 | 224.0 | ↓ 70.8% |
+| InnoDB 行锁等待次数 | 685.5 | **0** | **↓ 100%** |
+| InnoDB 行锁等待时长 | 6686 ms | **0** | **↓ 100%** |
+
+### 这组数据怎么读（重要）
+
+- **"数据库直连压力降低 90% 以上"指的就是写入侧**：1000 个请求里只有抢到库存的 100 个会进数据库，另外 900 个在 Redis 这一层就被拒了，所以**库存扣减 UPDATE 1000 → 100、进入写事务的请求 1000 → 100、行锁等待 685 → 0**。这是 90% 这个数字的出处。
+- **数据库总语句数只降了 81.7%、DB QPS 只降了 70.8%，同样是真实口径**：剩下的 100 个成功单必须真实落库（`orders` + `order_detail` + 扣 MySQL 库存），这部分是必要写入，缓存挡不掉；而且有缓存组跑得更快（2.8~4.7s vs 5.2~7.0s），同样的语句数摊到更短的时间里，DB QPS 看起来就降得少一些。
+- **延迟收益集中在"被拒请求"上**：无缓存时 90.8% 的请求都要拿一次行锁做条件 UPDATE，几乎全部 > 500ms；有缓存时 92.8% 的请求在 500ms 内返回（P50 122.5ms），超过 500ms 的那 7.2% 全部是抢到库存的请求（回源 + 投递 MQ）。
+- **为什么有缓存组 P99 反而更高**：无缓存组是"所有人一起排队慢慢等"（分布很窄，P99 只有 897ms）；有缓存组是"900 个秒回 + 100 个真实下单"，长尾被后者拉长。看"超过 500ms 的请求占比"比看 P99 更能说明问题。
+- **没有超卖**：两种模式下 1000 次请求都只成功写入 100 单，`dish.stock` 刚好归零，不存在负库存。
+
 ### 复现方式
 
 ```powershell
@@ -110,6 +141,15 @@ java -jar sky-server/target/sky-server-1.0-SNAPSHOT.jar
 # 3. AI 推荐接口（大模型链路）：需要用户端 token
 .\benchmark\ai-recommend-bench.ps1 -Token <token> -Hits 6  -Tag off
 .\benchmark\ai-recommend-bench.ps1 -Token <token> -Hits 12 -Tag on -Warmup
+
+# 4. 秒杀链路 A/B 压测（200 并发 × 5 轮 = 1000 请求抢 100 份库存；每组先跑一轮预热不计入）
+$m = "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe"
+# 4.1 无缓存基线：以 SKY_SECKILL_MODE=direct-db 启动应用，再把库存重置为 100
+& $m -uroot -p<密码> -e "UPDATE dish SET stock=100 WHERE id=68" sky_take_out
+.\benchmark\run-seckill.ps1 -Label direct-db -Token <token> -Threads 200 -Loops 5 -MySqlExe $m -MySqlPassword <密码>
+# 4.2 有缓存：以默认 SKY_SECKILL_MODE=redis 启动应用，先把库存预热进 Redis
+redis-cli -a <密码> set dish:stock:68 100
+.\benchmark\run-seckill.ps1 -Label redis -Token <token> -Threads 200 -Loops 5 -MySqlExe $m -MySqlPassword <密码>
 ```
 
 ---
@@ -149,7 +189,7 @@ java -jar sky-server/target/sky-server-1.0-SNAPSHOT.jar
                                   定时任务对账：Redis 与 DB 库存偏差自动回补
 ```
 
-关键点：库存判断与扣减在同一个 Lua 脚本里完成（`deduct_stock.lua`），避免"查完再扣"的并发超卖；下单请求只做 Redis + MQ 两步，落库全部异步，因此接口 RT 很短。 Redis 资格校验排在**所有 DB 读取之前**——没抢到库存的请求在这一步直接返回，不再查询地址与菜品（实测被拒请求只剩"读购物车"这 1 次查询）；抢到的请求才回源并投递 MQ，落库由消费者串行完成，请求路径不再持有 DB 事务和行锁。
+关键点：库存判断与扣减在同一个 Lua 脚本里完成（`deduct_stock.lua`），避免"查完再扣"的并发超卖；下单请求只做 Redis + MQ 两步，落库全部异步，因此接口 RT 很短。 Redis 资格校验排在**所有 DB 读取之前**——没抢到库存的请求在这一步直接返回，不再查询地址与菜品（实测被拒请求在这条路径上 0 次 DB 查询）；抢到的请求才回源并投递 MQ，落库由消费者串行完成，请求路径不再持有 DB 事务和行锁。
 
 ### 5. 统计接口全异步 + 站内通知
 
@@ -238,6 +278,7 @@ copy sky-server\src\main\resources\application-dev.example.yml sky-server\src\ma
 | `SKY_AI_BASE_URL` | 大模型服务地址 | `https://api.deepseek.com` |
 | `SKY_AI_MODEL` | 模型名 | `deepseek-chat` |
 | `SKY_CACHE_ENABLED` | 缓存总开关（`false` = 压测基线） | `true` |
+| `SKY_SECKILL_MODE` | 秒杀链路模式：`redis` = Redis 预扣减 + MQ 异步落库；`direct-db` = 同步直连 MySQL（压测基线） | `redis` |
 | `SKY_BLOOM_ENABLED` | 布隆过滤器开关 | `true` |
 
 ### 3. 启动

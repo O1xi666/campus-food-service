@@ -8,6 +8,7 @@ import com.sky.context.BaseContext;
 import com.sky.dto.OrdersDTO;
 import com.sky.dto.OrdersPageQueryDTO;
 import com.sky.dto.OrdersSubmitDTO;
+import com.sky.dto.SeckillDTO;
 import com.sky.entity.AddressBook;
 import com.sky.entity.Dish;
 import com.sky.entity.OrderDetail;
@@ -30,12 +31,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.scripting.support.ResourceScriptSource;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -67,6 +71,13 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Orders> implement
 
     @Autowired
     private RabbitTemplate rabbitTemplate;
+
+    /** 秒杀执行模式：redis = Redis 预扣减 + MQ 异步落库；direct-db = 同步直连 MySQL（压测基线） */
+    @Value("${sky.seckill.mode:redis}")
+    private String seckillMode;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     public OrderServiceImpl() {
         deductStockScript.setScriptSource(new ResourceScriptSource(new ClassPathResource("lua/deduct_stock.lua")));
@@ -207,6 +218,142 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Orders> implement
                 .orderAmount(totalAmount)
                 .orderTime(LocalDateTime.now())
                 .build();
+    }
+
+    /**
+     * 秒杀专用入口：Redis 资格校验排在最前，抢到库存的才回源 + 投递 MQ。
+     * sky.seckill.mode=direct-db 时切换为同步直连 MySQL 的压测基线。
+     */
+    @Override
+    public OrderSubmitVO seckillOrder(SeckillDTO seckillDTO) {
+        Long userId = BaseContext.getCurrentId();
+        Integer number = seckillDTO.getNumber() == null ? 1 : seckillDTO.getNumber();
+        if (seckillDTO.getDishId() == null || number <= 0) {
+            throw new BusinessException("参数不合法");
+        }
+        if ("direct-db".equalsIgnoreCase(seckillMode)) {
+            return submitDirectToDb(seckillDTO, number, userId);
+        }
+
+        // ---- 热点路径第一步：Redis + Lua 原子预扣减（不碰 DB）----
+        String stockKey = STOCK_KEY_PREFIX + seckillDTO.getDishId();
+        Long luaResult = executeDeduct(stockKey, number);
+        if (luaResult != null && luaResult == -1L) {
+            // key 不存在（未预热）：冷启动兜底，本次回源补建 key 后重试一次
+            Dish dish = dishMapper.selectById(seckillDTO.getDishId());
+            if (dish == null) {
+                throw new BusinessException("菜品不存在");
+            }
+            if (dish.getStock() == null) {
+                throw new BusinessException("菜品库存字段为空，无法下单");
+            }
+            redisTemplate.opsForValue().setIfAbsent(stockKey, dish.getStock().toString());
+            luaResult = executeDeduct(stockKey, number);
+        }
+        if (luaResult == null || luaResult < 0) {
+            throw new BusinessException("库存不足，请稍后重试");
+        }
+
+        // ---- 抢到库存的请求才回源 ----
+        Map<Long, Integer> deducted = new HashMap<>();
+        deducted.put(seckillDTO.getDishId(), number);
+        try {
+            AddressBook addressBook = addressBookMapper.getById(seckillDTO.getAddressBookId());
+            if (addressBook == null) {
+                throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
+            }
+            Dish dish = dishMapper.selectById(seckillDTO.getDishId());
+            if (dish == null) {
+                throw new BusinessException("菜品不存在");
+            }
+            BigDecimal amount = dish.getPrice().multiply(new BigDecimal(number));
+            OrderDetail detail = OrderDetail.builder()
+                    .dishId(dish.getId())
+                    .name(dish.getName())
+                    .number(number)
+                    .amount(dish.getPrice())
+                    .image(dish.getImage())
+                    .build();
+            OrdersSubmitDTO dto = new OrdersSubmitDTO();
+            dto.setAddressBookId(seckillDTO.getAddressBookId());
+            dto.setRemark(seckillDTO.getRemark());
+            String orderNumber = generateOrderNumber();
+            OrderFlashMessage msg = buildFlashMessage(orderNumber, userId, dish.getMerchantId(),
+                    dto, addressBook, amount, Collections.singletonList(detail));
+            log.info("发送 MQ 消息 - 订单号: {}", orderNumber);
+            rabbitTemplate.convertAndSend("order.flash.queue", msg);
+            return OrderSubmitVO.builder()
+                    .orderNumber(orderNumber)
+                    .orderAmount(amount)
+                    .orderTime(LocalDateTime.now())
+                    .build();
+        } catch (RuntimeException ex) {
+            rollbackRedisStock(deducted);
+            throw ex;
+        }
+    }
+
+    /**
+     * 压测基线：同步直连 MySQL —— 不走 Redis 预扣减、不走 MQ。
+     * 每个请求都在一个事务里读菜品、条件更新扣库存、写订单与明细，
+     * 用于量出"没有缓存削峰"时数据库真实承受的 QPS 与行锁竞争。
+     */
+    private OrderSubmitVO submitDirectToDb(SeckillDTO seckillDTO, Integer number, Long userId) {
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        return tx.execute(status -> {
+            Dish dish = dishMapper.selectById(seckillDTO.getDishId());
+            if (dish == null) {
+                throw new BusinessException("菜品不存在");
+            }
+            AddressBook addressBook = addressBookMapper.getById(seckillDTO.getAddressBookId());
+            if (addressBook == null) {
+                throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
+            }
+            // 条件更新扣库存：WHERE stock >= n，靠数据库行锁保证不超卖
+            int rows = dishMapper.update(null,
+                    Wrappers.<Dish>lambdaUpdate()
+                            .setSql("stock = stock - " + number)
+                            .eq(Dish::getId, dish.getId())
+                            .ge(Dish::getStock, number));
+            if (rows == 0) {
+                throw new BusinessException("库存不足，请稍后重试");
+            }
+            BigDecimal amount = dish.getPrice().multiply(new BigDecimal(number));
+            String orderNumber = generateOrderNumber();
+            Orders orders = Orders.builder()
+                    .number(orderNumber)
+                    .status(Orders.TO_BE_CONFIRMED)
+                    .userId(userId)
+                    .addressBookId(seckillDTO.getAddressBookId())
+                    .orderTime(LocalDateTime.now())
+                    .checkoutTime(LocalDateTime.now())
+                    .payStatus(Orders.PAID)
+                    .amount(amount)
+                    .remark(seckillDTO.getRemark())
+                    .phone(addressBook.getPhone())
+                    .consignee(addressBook.getConsignee())
+                    .address(addressBook.getProvinceName()
+                            + (addressBook.getCityName() == null ? "" : addressBook.getCityName())
+                            + (addressBook.getDistrictName() == null ? "" : addressBook.getDistrictName())
+                            + (addressBook.getDetail() == null ? "" : addressBook.getDetail()))
+                    .merchantId(dish.getMerchantId())
+                    .build();
+            orderMapper.insert(orders);
+            orderDetailMapper.insertBatch(Collections.singletonList(OrderDetail.builder()
+                    .orderId(orders.getId())
+                    .dishId(dish.getId())
+                    .name(dish.getName())
+                    .number(number)
+                    .amount(dish.getPrice())
+                    .image(dish.getImage())
+                    .build()));
+            return OrderSubmitVO.builder()
+                    .id(orders.getId())
+                    .orderNumber(orderNumber)
+                    .orderAmount(amount)
+                    .orderTime(orders.getOrderTime())
+                    .build();
+        });
     }
 
     /** 执行 Lua 库存预扣减：只传扣减数量，key 不存在时脚本返回 -1 */

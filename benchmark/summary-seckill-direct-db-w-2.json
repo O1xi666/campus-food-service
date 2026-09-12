@@ -1,0 +1,22 @@
+{
+  "Label": "direct-db-w-2",
+  "Threads": 200,
+  "Loops": 5,
+  "Samples": 1000,
+  "Errors": 0,
+  "IF_QPS": 142.4,
+  "Avg_ms": 877.91,
+  "P50_ms": 882.0,
+  "P95_ms": 1175.0,
+  "P99_ms": 1211.0,
+  "Max_ms": 2060.0,
+  "Duration_s": 7.02,
+  "Com_select": 3205,
+  "Com_insert": 200,
+  "Com_update": 1000,
+  "DB_Statements": 4405,
+  "DB_QPS": 627.1,
+  "RowLockWaits": 680,
+  "RowLockTime_ms": 7737,
+  "MaxUsedConn": 9
+}

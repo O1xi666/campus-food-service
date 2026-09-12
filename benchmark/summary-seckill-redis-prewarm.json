@@ -1,0 +1,22 @@
+{
+  "Label": "redis-prewarm",
+  "Threads": 200,
+  "Loops": 5,
+  "Samples": 1000,
+  "Errors": 0,
+  "IF_QPS": 211.3,
+  "Avg_ms": 287.31,
+  "P50_ms": 158.0,
+  "P95_ms": 1782.0,
+  "P99_ms": 2152.0,
+  "Max_ms": 2330.0,
+  "Duration_s": 4.73,
+  "Com_select": 505,
+  "Com_insert": 200,
+  "Com_update": 100,
+  "DB_Statements": 805,
+  "DB_QPS": 170.1,
+  "RowLockWaits": 0,
+  "RowLockTime_ms": 0,
+  "MaxUsedConn": 9
+}

@@ -1,0 +1,22 @@
+{
+  "Label": "redis-w-3",
+  "Threads": 200,
+  "Loops": 5,
+  "Samples": 1000,
+  "Errors": 0,
+  "IF_QPS": 269.8,
+  "Avg_ms": 233.39,
+  "P50_ms": 133.0,
+  "P95_ms": 1429.0,
+  "P99_ms": 1605.0,
+  "Max_ms": 1790.0,
+  "Duration_s": 3.71,
+  "Com_select": 506,
+  "Com_insert": 200,
+  "Com_update": 100,
+  "DB_Statements": 806,
+  "DB_QPS": 217.4,
+  "RowLockWaits": 0,
+  "RowLockTime_ms": 0,
+  "MaxUsedConn": 9
+}

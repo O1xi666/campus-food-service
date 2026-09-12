@@ -1,0 +1,22 @@
+{
+  "Label": "direct-db-digest",
+  "Threads": 200,
+  "Loops": 5,
+  "Samples": 1000,
+  "Errors": 0,
+  "IF_QPS": 190.8,
+  "Avg_ms": 664.78,
+  "P50_ms": 702.0,
+  "P95_ms": 822.0,
+  "P99_ms": 842.0,
+  "Max_ms": 1376.0,
+  "Duration_s": 5.24,
+  "Com_select": 3206,
+  "Com_insert": 200,
+  "Com_update": 1000,
+  "DB_Statements": 4406,
+  "DB_QPS": 840.5,
+  "RowLockWaits": 691,
+  "RowLockTime_ms": 6323,
+  "MaxUsedConn": 9
+}

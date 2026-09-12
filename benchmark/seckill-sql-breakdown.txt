@@ -1,0 +1,58 @@
+秒杀链路 A/B 压测：MySQL 实际执行的 SQL 明细对比
+=================================================
+
+采集方式：压测前后各取一次 performance_schema.events_statements_summary_by_digest
+          中 SCHEMA_NAME='sky_take_out' 的 COUNT_STAR，做差值。
+场景：200 并发 × 5 轮 = 1000 次请求，库存 100（即 100 单成功、900 单失败）。
+
+
+【无缓存基线】sky.seckill.mode=direct-db
+----------------------------------------
+     2000  SET autocommit = ?                        (JDBC 驱动，每个事务开关)
+     1200  SELECT @@SESSION.transaction_read_only    (JDBC 驱动，借连接时校验只读)
+     1000  SELECT * FROM address_book WHERE id = ?
+     1000  SELECT id,name,category_id,price,image,description,status,stock,
+                  merchant_id,create_time,update_time,create_user,update_user
+           FROM dish WHERE id = ?
+     1000  UPDATE dish SET stock = stock - ? WHERE (id = ? AND stock >= ?)
+      900  ROLLBACK
+      100  COMMIT
+      100  INSERT INTO order_detail (...) VALUES (...)
+      100  INSERT INTO orders (...) VALUES (...)
+
+  业务 SQL 合计 = 2000 select + 200 insert + 1000 update = 3200 条
+  写事务       = 1000 个（100 COMMIT + 900 ROLLBACK）
+  说明：900 个 ROLLBACK 就是那 900 个没抢到库存的请求——它们同样开事务、同样
+        执行了条件 UPDATE（影响 0 行），只是最后回滚。数据库照样承受了这些语句
+        和行锁。
+
+
+【有缓存】sky.seckill.mode=redis（库存已预热进 Redis）
+----------------------------------------
+      307  SELECT @@SESSION.transaction_read_only    (JDBC 驱动)
+      207  SET autocommit = ?                        (JDBC 驱动)
+      100  COMMIT                                    (MQ 消费者异步落库)
+      100  INSERT INTO order_detail (...) VALUES (...)
+      100  INSERT INTO orders (...) VALUES (...)
+      100  SELECT * FROM address_book WHERE id = ?
+      100  SELECT id,name,... FROM dish WHERE id = ?
+      100  UPDATE dish SET stock = stock - ? WHERE (id = ? AND stock >= ?)
+
+  业务 SQL 合计 = 200 select + 200 insert + 100 update = 500 条
+  写事务       = 100 个（全部来自抢到库存的订单）
+  说明：没有出现 ROLLBACK —— 900 个没抢到库存的请求在 Redis + Lua 预扣减那一步
+        就直接返回了，压根没有开过数据库事务。回源查询（address_book / dish）
+        也只发生在抢到库存的 100 个请求上。
+
+
+对比结论
+--------
+  业务 SQL 条数     ：3200 → 500   （-84.4%）
+  库存扣减 UPDATE   ：1000 → 100   （-90.0%）
+  进入写事务的请求  ：1000 → 100   （-90.0%）
+  ROLLBACK 次数     ： 900 → 0
+  InnoDB 行锁等待   ：685.5 → 0（多次运行中位数，见 README「二、实测性能数据」）
+
+注：SET autocommit / SELECT @@SESSION.transaction_read_only 属于 MySQL Connector/J
+    的连接管理语句，不计入业务 SQL；Com_select 计数器会把后者算进去，所以
+    SHOW GLOBAL STATUS 得到的 select 数会明显高于业务实际发出的查询数。

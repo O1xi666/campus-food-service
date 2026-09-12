@@ -3,6 +3,7 @@ package com.sky.service;
 import com.sky.dto.OrdersDTO;
 import com.sky.dto.OrdersPageQueryDTO;
 import com.sky.dto.OrdersSubmitDTO;
+import com.sky.dto.SeckillDTO;
 import com.sky.result.PageResult;
 import com.sky.vo.OrderVO;
 import com.sky.vo.OrderSubmitVO;
@@ -37,6 +38,14 @@ public interface OrderService {
      * @return 下单结果
      */
     OrderSubmitVO submitCartOrder(OrdersSubmitDTO ordersSubmitDTO, List<Long> cartIds);
+
+    /**
+     * 秒杀专用下单入口：请求体直接携带菜品与数量，不读 DB 购物车，
+     * 让 Redis 资格校验成为请求路径上的第一个环节。
+     * @param seckillDTO 秒杀请求
+     * @return 下单结果
+     */
+    OrderSubmitVO seckillOrder(SeckillDTO seckillDTO);
 
     /**
      * 管理端：订单分页条件查询

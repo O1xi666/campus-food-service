@@ -1,0 +1,11 @@
+秒杀链路 A/B 压测：逐轮明细与中位数
+============================================================================================
+被测接口：POST /user/order/seckill
+压测工具：JMeter 5.6.3（非 GUI）   并发：200 线程 × 5 轮 = 1000 请求/组
+被测数据：dish_id=68，库存 100（100 单成功 / 900 单失败）
+环境：单机；JDK 1.8.0_202；MySQL 8.0（本机）；Redis 3.2.100（本机）；应用与压测同机
+
+计入中位数的原始文件（同目录，.jtl 为 JMeter 原始样本，summary-*.json 为汇总）：
+  无缓存 direct-db ：seckill-direct-db-w-2.jtl / -w-3.jtl / -w-4.jtl / -digest.jtl          （4 轮）
+  有缓存 redis     ：seckill-redis-prewarm.jtl / -digest.jtl / -w-1.jtl / -w-2.jtl / -w-3.jtl / -w-4.jtl（6 轮）
+说明：每组先跑的那一轮预热（JVM JIT + 连接池）以及 1 次冒烟请求不计入中位数。

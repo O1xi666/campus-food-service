@@ -3,6 +3,7 @@ package com.sky.controller.user;
 import com.sky.annotation.RateLimit;
 import com.sky.dto.OrdersPageQueryDTO;
 import com.sky.dto.OrdersSubmitDTO;
+import com.sky.dto.SeckillDTO;
 import com.sky.result.PageResult;
 import com.sky.result.Result;
 import com.sky.service.OrderService;
@@ -80,5 +81,18 @@ public class Ordercontroller {
                                             @RequestParam List<Long> cartIds) {
         log.info("购物车批量下单，cartIds: {}, body: {}", cartIds, ordersSubmitDTO);
         return Result.success(orderService.submitCartOrder(ordersSubmitDTO, cartIds));
+    }
+
+    /**
+     * 秒杀专用下单入口：请求体直接携带菜品与数量，不读 DB 购物车，
+     * 使 Redis 资格校验成为请求路径上的第一个环节。
+     */
+    @PostMapping("/seckill")
+    @ApiOperation("秒杀下单（专用入口）")
+    @RateLimit(key = "order:seckill", limit = 100000, window = 1,
+            dimensions = {RateLimit.Dimension.USER, RateLimit.Dimension.IP})
+    public Result<OrderSubmitVO> seckill(@RequestBody SeckillDTO seckillDTO) {
+        log.info("秒杀下单: {}", seckillDTO);
+        return Result.success(orderService.seckillOrder(seckillDTO));
     }
 }
