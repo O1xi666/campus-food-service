@@ -78,7 +78,7 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements Di
      * 修改菜品 → 先更库 → 再删缓存（本地缓存 @CacheEvict 清空，逻辑过期 key 手动删）。
      * 顺序不能反：先删缓存再更库，会在"删完还没更库"的窗口里被读到旧值。
      */
-    @CacheEvict(value = "dishCache", allEntries = true)
+    @CacheEvict(value = {"dishCache", "aiRecommendCache"}, allEntries = true)
     @Override
     public boolean updateById(Dish dish) {
         boolean updated = super.updateById(dish);
@@ -94,6 +94,7 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements Di
      * 代价只是这次查询多走一次数据库，不影响正确性。
      */
     @Override
+    @CacheEvict(value = {"dishCache", "aiRecommendCache"}, allEntries = true)
     public boolean save(Dish dish) {
         boolean saved = super.save(dish);
         if (saved) {

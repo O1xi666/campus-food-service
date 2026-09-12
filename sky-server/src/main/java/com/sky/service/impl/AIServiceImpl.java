@@ -15,6 +15,7 @@ import com.sky.task.BusinessAnalysisTaskRunner;
 import com.sky.utils.QwenUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
@@ -56,6 +57,7 @@ public class AIServiceImpl implements AIService {
     // ======================== 三层 AI 推荐链路 ========================
 
     @Override
+    @Cacheable(value = "aiRecommendCache", key = "#userId + ':' + #preference + ':' + #merchantId")
     public String recommendDishes(Long userId, String preference, Long merchantId) {
         if (preference == null || preference.trim().isEmpty()) {
             preference = "随便吃点";

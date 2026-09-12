@@ -30,7 +30,30 @@
 
 ## 二、实测性能数据
 
-### 压测方法
+### AI 推荐接口（`/user/ai/recommend`）：秒级 → 10ms 量级
+
+这是缓存收益最直观的接口：缓存未命中时它要**真实调用一次大模型**（构建用户画像 → 拼 Prompt → 等模型生成），命中本地 Caffeine 后方法体根本不执行，直接返回缓存结果。
+
+- **模型**：`deepseek-flash`（DeepSeek OpenAI 兼容接口）
+- **对照组**：`sky.cache.enabled=false`（`NoOpCacheManager`，每次请求都真实打大模型）vs `sky.cache.enabled=true`
+- **请求**：同一用户 + 同一 `preference`，即"纯热点场景"
+- **缓存键**：`userId + ":" + preference + ":" + merchantId`，TTL 为 L1 5 分钟 / L2 30 分钟（带随机抖动）
+
+| 指标 | 绕过缓存（真实调大模型） | 有缓存（命中 L1 Caffeine） | 变化 |
+|------|------------------------|---------------------------|------|
+| 样本数 | 6 | 12 | — |
+| 平均响应时间 | 17698 ms | **13.11 ms** | **↓ 99.93%** |
+| P50 | 14867 ms | **12.04 ms** | ↓ 99.92% |
+| 最快 / 最慢 | 12935 / 26900 ms | 5.85 / 21.58 ms | — |
+| DB 查询次数（`Com_select`） | 45 | 1 | ↓ 97.8% |
+
+未命中侧 6 次采样全部是秒级（12.9s ~ 26.9s）；命中侧 12 次采样全部落在 6 ~ 22 ms，且两次响应体逐字节一致——缓存返回的就是同一次大模型调用的结果。
+
+原始采样数据：`benchmark/ai-recommend-off.txt`（绕过缓存）、`benchmark/ai-recommend-on.txt`（命中缓存）；复现脚本 `benchmark/ai-recommend-bench.ps1`。
+
+> **这组数字怎么读**：未命中侧的耗时几乎全是"等大模型生成"，所以它随**模型与供应商**变化（本项目先后接过阿里云百炼的通义千问和 DeepSeek，两边差距是成倍的）；命中侧的 10ms 量级才是与模型无关、稳定可复现的那部分。这条链路的优化口径应该记成"**把秒级的大模型调用变成 10ms 级的本地读**"。
+
+### 菜品列表热点读接口（`/user/dish/list`）：JMeter 并发压测
 
 - **环境**：单机（同一台笔记本）；Windows；JDK 1.8.0_202；MySQL 8.0（本机）；Redis 3.2.100（本机）；应用与压测工具同机运行
 - **被测接口**：`GET /user/dish/list`（用户端菜单列表，最典型的热点读接口）
@@ -48,7 +71,7 @@ benchmark/results-false.jtl    # 无缓存基线原始数据
 benchmark/results-true.jtl     # 有缓存原始数据
 ```
 
-### 结果
+### 压测结果
 
 | 指标 | 无缓存（基线） | 有缓存（Caffeine + Redis） | 变化 |
 |------|---------------|---------------------------|------|
@@ -84,6 +107,9 @@ java -jar sky-server/target/sky-server-1.0-SNAPSHOT.jar
 $env:SKY_CACHE_ENABLED="true"
 java -jar sky-server/target/sky-server-1.0-SNAPSHOT.jar
 .\benchmark\run-benchmark.ps1 -Label cache-on
+# 3. AI 推荐接口（大模型链路）：需要用户端 token
+.\benchmark\ai-recommend-bench.ps1 -Token <token> -Hits 6  -Tag off
+.\benchmark\ai-recommend-bench.ps1 -Token <token> -Hits 12 -Tag on -Warmup
 ```
 
 ---
@@ -100,7 +126,7 @@ java -jar sky-server/target/sky-server-1.0-SNAPSHOT.jar
 
 ### 2. 缓存与数据库一致性
 
-采用 **Cache-Aside + 先更库再删缓存**：`updateById` 上标 `@CacheEvict(value="dishCache", allEntries=true)` 清空二级缓存，同时手动淘汰逻辑过期 key。顺序不能反——先删缓存再更库会在"删完还没更库"的窗口里读到旧值。此外所有缓存都带 TTL，作为最终兜底。
+采用 **Cache-Aside + 先更库再删缓存**：`updateById` 上标 `@CacheEvict(value={"dishCache","aiRecommendCache"}, allEntries=true)` 清空二级缓存，同时手动淘汰逻辑过期 key。顺序不能反——先删缓存再更库会在"删完还没更库"的窗口里读到旧值。此外所有缓存都带 TTL，作为最终兜底。
 
 ### 3. 滑动窗口限流
 
@@ -290,9 +316,3 @@ sky-take-out/
 - **布隆过滤器不支持删除**：菜品删除后会留下一个"假阳性"，代价只是这次查询多走一次数据库，不影响正确性（这是布隆过滤器的固有特性）。
 - **`mvnw` 不可用**：缺少 `maven-wrapper.jar`，请用本机 Maven。
 - **压测结论的适用范围**：见上文"怎么读这组数据"，单机小数据量下缓存的主要收益是削减数据库查询次数，而不是大幅降低响应时间。
-
----
-
-## 九、致谢
-
-本项目的业务主干（管理端 / 用户端的分类、菜品、套餐、订单、购物车等基础功能）来自一个开源外卖点餐课程项目，在其基础上完成了二次开发与工程化改造。
