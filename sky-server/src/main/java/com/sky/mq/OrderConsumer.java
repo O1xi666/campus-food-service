@@ -7,6 +7,7 @@ import com.sky.entity.Orders;
 import com.sky.mapper.DishMapper;
 import com.sky.mapper.OrderDetailMapper;
 import com.sky.mapper.OrderMapper;
+import com.sky.service.impl.NotificationService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +33,9 @@ public class OrderConsumer {
 
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
+
+    @Autowired
+    private NotificationService notificationService;
 
     @RabbitListener(queues = "order.flash.queue")
     @Transactional(rollbackFor = Exception.class)
@@ -91,6 +95,10 @@ public class OrderConsumer {
         }
 
         log.info("异步落库完成 - 订单号: {}, 订单ID: {}", msg.getOrderNumber(), orders.getId());
+
+        // 5. 站内通知：下单是异步落库的，用户看到"下单成功"时数据其实刚写完，这里主动推一条消息
+        notificationService.notifyUser(msg.getUserId(), "ORDER", "下单成功",
+                "订单 " + msg.getOrderNumber() + " 已受理，共 " + msg.getAmount() + " 元，正在为你备餐。");
     }
 }
 
