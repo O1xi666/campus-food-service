@@ -4,18 +4,21 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.sky.entity.Dish;
 import com.sky.entity.OrderDetail;
 import com.sky.entity.Orders;
+import com.sky.entity.TaskInfo;
 import com.sky.exception.BusinessException;
 import com.sky.mapper.DishMapper;
 import com.sky.mapper.OrderDetailMapper;
 import com.sky.mapper.OrderMapper;
 import com.sky.service.AIService;
+import com.sky.service.DataAnalysisService;
+import com.sky.task.BusinessAnalysisTaskRunner;
 import com.sky.utils.QwenUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.text.DecimalFormat;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -25,6 +28,9 @@ import java.util.stream.Collectors;
 public class AIServiceImpl implements AIService {
 
     private static final int TOP_K = 10;
+
+    /** 经营分析任务最大重试次数 */
+    private static final int MAX_RETRY = 3;
 
     @Autowired
     private OrderMapper orderMapper;
@@ -37,6 +43,15 @@ public class AIServiceImpl implements AIService {
 
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
+
+    @Autowired
+    private NotificationService notificationService;
+
+    @Autowired
+    private DataAnalysisService dataAnalysisService;
+
+    @Autowired
+    private BusinessAnalysisTaskRunner businessAnalysisTaskRunner;
 
     // ======================== 三层 AI 推荐链路 ========================
 
@@ -303,45 +318,58 @@ public class AIServiceImpl implements AIService {
         boolean isNewUser;
     }
 
-    // ======================== 原有的异步经营分析 ========================
+    // ======================== 经营分析（数据来自数据库，不再是模拟数据） ========================
 
-    private static final String MOCK_ORDER_STATS =
-            "【昨日经营日报】\n" +
-                    "- 总订单量：58 单\n" +
-                    "- 总营业额：1,280 元\n" +
-                    "- 客单价：27.1 元\n" +
-                    "- 异常订单：5 单（3 单超时，2 单退款）\n" +
-                    "- 热销 Top1: 宫保鸡丁 (42 份)\n" +
-                    "- 滞销 Top1: 清炒时蔬 (5 份)";
-
-    @Async
+    /**
+     * 提交异步经营分析任务。
+     *
+     * 这里只做两件事：① 用幂等键拿到（或创建）任务记录；② 把任务派发给线程池。
+     * 真正的模型调用在 BusinessAnalysisTaskRunner 里异步执行，所以本方法能立刻返回 taskId。
+     *
+     * 幂等键设计成 "BUSINESS_ANALYSIS:{merchantId}:{日期}"：
+     * 同一商家同一天重复点击，只会复用已有任务，不会重复消耗大模型额度。
+     */
     @Override
-    public void runBusinessAnalysis() {
-        log.info("开始异步经营分析任务(线程名: {})", Thread.currentThread().getName());
-        try {
-            String prompt = "你是一位资深餐饮数据分析师。以下是昨天的经营数据：\n"
-                    + MOCK_ORDER_STATS
-                    + "\n\n请完成以下任务：\n1. 总结亮点。\n2. 指出潜在风险。\n3. 给出一条具体改进建议。\n请用条理清晰的格式返回。";
-            String reply = QwenUtil.chat(prompt);
-            log.info("AI 分析完成，结果如下：\n{}", reply);
-        } catch (Exception e) {
-            log.error("经营分析任务执行失败", e);
+    public String runBusinessAnalysis(Long userId, Long merchantId) {
+        Long resolvedMerchantId = resolveMerchantId(userId, merchantId);
+        if (resolvedMerchantId == null) {
+            throw new BusinessException("无法确定要分析的商家，请先下单或显式传入 merchantId");
         }
+        String businessKey = "BUSINESS_ANALYSIS:" + resolvedMerchantId + ":" + LocalDate.now();
+        TaskInfo task = notificationService.getOrCreateTask(userId, "BUSINESS_ANALYSIS", businessKey, MAX_RETRY);
+
+        if (TaskInfo.PENDING.equals(task.getStatus())) {
+            businessAnalysisTaskRunner.run(task.getId(), userId, resolvedMerchantId, task.getMaxRetry());
+        } else {
+            log.info("经营分析任务已存在，无需重复提交 - taskId: {}, status: {}",
+                    task.getTaskId(), task.getStatus());
+        }
+        return task.getTaskId();
     }
 
     @Override
-    public String syncRunBusinessAnalysis() {
+    public String syncRunBusinessAnalysis(Long userId, Long merchantId) {
         log.info("开始同步经营分析任务(线程名: {})", Thread.currentThread().getName());
         try {
-            String prompt = "你是一位资深餐饮数据分析师。以下是昨天的经营数据：\n"
-                    + MOCK_ORDER_STATS
-                    + "\n\n请完成以下任务：\n1. 总结亮点。\n2. 指出潜在风险。\n3. 给出一条具体改进建议。\n请用条理清晰的格式返回。";
-            String reply = QwenUtil.chat(prompt);
+            String reply = dataAnalysisService.generateBusinessReport(resolveMerchantId(userId, merchantId));
             log.info("AI 分析完成，结果如下：\n{}", reply);
             return reply;
+        } catch (BusinessException be) {
+            log.warn("经营分析任务未执行: {}", be.getMessage());
+            return be.getMessage();
         } catch (Exception e) {
             log.error("经营分析任务执行失败", e);
             return "AI分析失败，请稍后重试";
         }
+    }
+
+    /**
+     * 确定分析哪个商家：优先用显式传入的 merchantId，否则从该用户最近一笔已完成订单推断。
+     */
+    private Long resolveMerchantId(Long userId, Long merchantId) {
+        if (merchantId != null) {
+            return merchantId;
+        }
+        return userId == null ? null : inferMerchantFromHistory(userId);
     }
 }

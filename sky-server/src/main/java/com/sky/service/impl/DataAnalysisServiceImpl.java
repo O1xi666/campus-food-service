@@ -29,8 +29,15 @@ public class DataAnalysisServiceImpl implements DataAnalysisService {
 
     @Override
     public String generateBusinessReport() {
-        // 1. 从登录上下文获取商家ID
-        Long merchantId = BaseContext.getCurrentMerchantId();
+        return generateBusinessReport(BaseContext.getCurrentMerchantId());
+    }
+
+    @Override
+    public String generateBusinessReport(Long merchantId) {
+        // 1. 确定商家
+        if (merchantId == null) {
+            throw new BusinessException("未确定商家，无法生成经营分析报告");
+        }
         Merchant merchant = merchantMapper.getById(merchantId);
         if (merchant == null) {
             throw new BusinessException("商家不存在");
@@ -64,8 +71,9 @@ public class DataAnalysisServiceImpl implements DataAnalysisService {
                 + "4. 给出 1-2 条可执行的运营策略\n\n"
                 + "请用条理清晰的格式返回，语言简洁专业。";
 
-        // 6. 调用阿里云大模型
-        log.info("调用阿里云大模型生成分析报告...");
+        // 6. 调用大模型（provider / model 由 sky.ai.* 配置决定）
+        log.info("调用大模型生成分析报告 - provider: {}, model: {}",
+                QwenUtil.getProvider(), QwenUtil.getModel());
         String reply = QwenUtil.chat(prompt);
         log.info("AI 分析完成");
 
