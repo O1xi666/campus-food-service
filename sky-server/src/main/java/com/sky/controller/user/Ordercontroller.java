@@ -1,5 +1,6 @@
 package com.sky.controller.user;
 
+import com.sky.annotation.RateLimit;
 import com.sky.dto.OrdersPageQueryDTO;
 import com.sky.dto.OrdersSubmitDTO;
 import com.sky.result.PageResult;
@@ -30,6 +31,8 @@ public class Ordercontroller {
      */
     @PostMapping("/submit")
     @ApiOperation("用户下单")
+    @RateLimit(key = "order:submit", limit = 30, window = 60,
+            dimensions = {RateLimit.Dimension.GLOBAL, RateLimit.Dimension.IP, RateLimit.Dimension.USER})
     public Result<OrderSubmitVO> submit(@RequestBody OrdersSubmitDTO ordersSubmitDTO) {
         log.info("用户下单:{}", ordersSubmitDTO);
         OrderSubmitVO orderSubmitVO = orderService.submitOrder(ordersSubmitDTO);
@@ -43,6 +46,8 @@ public class Ordercontroller {
      */
     @GetMapping("/page")
     @ApiOperation("用户订单分页查询")
+    @RateLimit(key = "order:page", limit = 60, window = 60,
+            dimensions = {RateLimit.Dimension.USER, RateLimit.Dimension.IP})
     public Result<PageResult> page(OrdersPageQueryDTO ordersPageQueryDTO) {
         log.info("用户订单分页查询: {}", ordersPageQueryDTO);
         PageResult pageResult = orderService.pageQuery4User(ordersPageQueryDTO);
@@ -51,22 +56,24 @@ public class Ordercontroller {
 
     /**
      * 用户端订单详情
-     * @param ordersDTO 订单id
+     * @param id 订单id
      * @return 订单详情
      */
-   @GetMapping("/detail")
-@ApiOperation("用户订单详情")
-public Result<OrderVO> detail(@RequestParam Long id) { // 直接用Long id接收，和Service匹配
-    log.info("查询订单详情: {}", id);
-    OrderVO orderVO = orderService.orderDetail(id); // 直接传id
-    return Result.success(orderVO);
+    @GetMapping("/detail")
+    @ApiOperation("用户订单详情")
+    public Result<OrderVO> detail(@RequestParam Long id) {
+        log.info("查询订单详情: {}", id);
+        OrderVO orderVO = orderService.orderDetail(id);
+        return Result.success(orderVO);
     }
 
     /**
-     * 购物车批量下单
+     * 购物车批量下单（秒杀链路：Redis+Lua 预扣减 → MQ 异步落库）
      */
     @PostMapping("/submit/cart")
     @ApiOperation("购物车批量下单")
+    @RateLimit(key = "order:submit", limit = 30, window = 60,
+            dimensions = {RateLimit.Dimension.GLOBAL, RateLimit.Dimension.IP, RateLimit.Dimension.USER})
     public Result<OrderSubmitVO> submitCart(@RequestBody OrdersSubmitDTO ordersSubmitDTO,
                                             @RequestParam List<Long> cartIds) {
         log.info("购物车批量下单，cartIds: {}, body: {}", cartIds, ordersSubmitDTO);
