@@ -31,8 +31,9 @@ public class Ordercontroller {
      */
     @PostMapping("/submit")
     @ApiOperation("用户下单")
-    @RateLimit(key = "order:submit", limit = 30, window = 60,
-            dimensions = {RateLimit.Dimension.GLOBAL, RateLimit.Dimension.IP, RateLimit.Dimension.USER})
+    // 秒杀不做全局限流：削峰交给 Redis 库存预扣减，这里只防单用户 / 单 IP 刷接口
+    @RateLimit(key = "order:submit", limit = 10, window = 1,
+            dimensions = {RateLimit.Dimension.USER, RateLimit.Dimension.IP})
     public Result<OrderSubmitVO> submit(@RequestBody OrdersSubmitDTO ordersSubmitDTO) {
         log.info("用户下单:{}", ordersSubmitDTO);
         OrderSubmitVO orderSubmitVO = orderService.submitOrder(ordersSubmitDTO);
@@ -72,8 +73,9 @@ public class Ordercontroller {
      */
     @PostMapping("/submit/cart")
     @ApiOperation("购物车批量下单")
-    @RateLimit(key = "order:submit", limit = 30, window = 60,
-            dimensions = {RateLimit.Dimension.GLOBAL, RateLimit.Dimension.IP, RateLimit.Dimension.USER})
+    // 秒杀不做全局限流：削峰交给 Redis 库存预扣减，这里只防单用户 / 单 IP 刷接口
+    @RateLimit(key = "order:submit", limit = 10, window = 1,
+            dimensions = {RateLimit.Dimension.USER, RateLimit.Dimension.IP})
     public Result<OrderSubmitVO> submitCart(@RequestBody OrdersSubmitDTO ordersSubmitDTO,
                                             @RequestParam List<Long> cartIds) {
         log.info("购物车批量下单，cartIds: {}, body: {}", cartIds, ordersSubmitDTO);

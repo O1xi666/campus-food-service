@@ -136,70 +136,86 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Orders> implement
      * 秒杀下单核心：Redis+Lua 预扣减 → MQ 异步落库
      */
     private OrderSubmitVO processFlashOrder(OrdersSubmitDTO ordersSubmitDTO, List<OrderDetail> details, Long userId) {
-        AddressBook addressBook = addressBookMapper.getById(ordersSubmitDTO.getAddressBookId());
-        if (addressBook == null) {
-            throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
-        }
-
-        // Step 1: Lua 原子扣减 Redis 库存
+        // ===== Step 1: Redis 资格校验（热点路径，先于任何 DB 读取）=====
+        // 库存由发布流程预热进 Redis；没抢到库存的请求在这里就返回，全程不产生 DB 访问。
         Map<Long, Integer> deductedCache = new HashMap<>();
         Long merchantId = null;
+        BigDecimal totalAmount = BigDecimal.ZERO;
+        String orderNumber = generateOrderNumber();
         try {
+            for (OrderDetail detail : details) {
+                String stockKey = STOCK_KEY_PREFIX + detail.getDishId();
+                Long luaResult = executeDeduct(stockKey, detail.getNumber());
+
+                // -1 = key 不存在（未预热）：冷启动兜底，本次回源补建 key 后重试一次
+                if (luaResult != null && luaResult == -1L) {
+                    Dish dish = dishMapper.selectById(detail.getDishId());
+                    if (dish == null) {
+                        throw new BusinessException("菜品不存在");
+                    }
+                    if (dish.getStock() == null) {
+                        throw new BusinessException("菜品库存字段为空，无法下单");
+                    }
+                    redisTemplate.opsForValue().setIfAbsent(stockKey, dish.getStock().toString());
+                    luaResult = executeDeduct(stockKey, detail.getNumber());
+                }
+
+                if (luaResult == null || luaResult < 0) {
+                    throw new BusinessException("库存不足，请稍后重试");
+                }
+                deductedCache.merge(detail.getDishId(), detail.getNumber(), Integer::sum);
+            }
+
+            // ===== Step 2: 抢到库存的请求才回源（地址 / 菜品商家）=====
+            AddressBook addressBook = addressBookMapper.getById(ordersSubmitDTO.getAddressBookId());
+            if (addressBook == null) {
+                throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
+            }
             for (OrderDetail detail : details) {
                 Dish dish = dishMapper.selectById(detail.getDishId());
                 if (dish == null) {
                     throw new BusinessException("菜品不存在");
                 }
-                Integer stock = dish.getStock();
-                if (stock == null) {
-                    throw new BusinessException("菜品库存字段为空，无法下单");
-                }
-                Long luaResult = redisTemplate.execute(
-                        deductStockScript,
-                        Collections.singletonList(STOCK_KEY_PREFIX + dish.getId()),
-                        detail.getNumber().toString(),
-                        stock.toString()
-                );
-                if (luaResult == null || luaResult < 0) {
-                    throw new BusinessException("库存不足: " + dish.getName());
-                }
-                deductedCache.put(dish.getId(),
-                        deductedCache.getOrDefault(dish.getId(), 0) + detail.getNumber());
                 if (merchantId == null) {
                     merchantId = dish.getMerchantId();
                 }
+            }
+
+            // ===== Step 3: 计算总金额 =====
+            for (OrderDetail detail : details) {
+                totalAmount = totalAmount.add(detail.getAmount().multiply(new BigDecimal(detail.getNumber())));
+            }
+
+            // ===== Step 4: 发送 MQ 消息（消费者异步写入 MySQL）=====
+            OrderFlashMessage msg = buildFlashMessage(orderNumber, userId, merchantId,
+                    ordersSubmitDTO, addressBook, totalAmount, details);
+            try {
+                log.info("发送 MQ 消息 - 订单号: {}", orderNumber);
+                rabbitTemplate.convertAndSend("order.flash.queue", msg);
+            } catch (Exception e) {
+                log.error("MQ 发送失败，回滚 Redis 库存", e);
+                throw new BusinessException("下单繁忙，请稍后重试");
             }
         } catch (RuntimeException ex) {
             rollbackRedisStock(deductedCache);
             throw ex;
         }
 
-        // Step 2: 计算总金额
-        BigDecimal totalAmount = BigDecimal.ZERO;
-        for (OrderDetail detail : details) {
-            totalAmount = totalAmount.add(detail.getAmount().multiply(new BigDecimal(detail.getNumber())));
-        }
-
-        // Step 3: 发送 MQ 消息（消费者异步写入 MySQL）
-        String orderNumber = generateOrderNumber();
-        OrderFlashMessage msg = buildFlashMessage(orderNumber, userId, merchantId,
-                ordersSubmitDTO, addressBook, totalAmount, details);
-
-        try {
-            log.info("发送 MQ 消息 - 订单号: {}", orderNumber);
-            rabbitTemplate.convertAndSend("order.flash.queue", msg);
-        } catch (Exception e) {
-            log.error("MQ 发送失败，回滚 Redis 库存", e);
-            rollbackRedisStock(deductedCache);
-            throw new BusinessException("下单繁忙，请稍后重试");
-        }
-
-        // Step 4: 立即返回（MySQL 写交由 MQ 消费者异步完成）
+        // ===== Step 5: 立即返回（MySQL 写交由 MQ 消费者异步完成）=====
         return OrderSubmitVO.builder()
                 .orderNumber(orderNumber)
                 .orderAmount(totalAmount)
                 .orderTime(LocalDateTime.now())
                 .build();
+    }
+
+    /** 执行 Lua 库存预扣减：只传扣减数量，key 不存在时脚本返回 -1 */
+    private Long executeDeduct(String stockKey, Integer number) {
+        return redisTemplate.execute(
+                deductStockScript,
+                Collections.singletonList(stockKey),
+                number.toString()
+        );
     }
 
     /** Redis 预扣减失败时回滚 */
