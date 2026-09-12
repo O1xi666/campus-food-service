@@ -4,7 +4,7 @@
 --  说明：本文件由本机运行中的 MySQL 8.0 实例直接导出（mysqldump --no-data），
 --        是当前代码真实依赖的完整表结构，可直接重复执行（全部为 IF NOT EXISTS）。
 --        包含：
---          - 原「苍穹外卖」课程项目的基础表（employee / category / dish / setmeal /
+--          - 基础业务表（employee / category / dish / setmeal /
 --            orders / order_detail / shopping_cart / user / address_book 等）
 --          - 二次开发新增的 merchant 表（多商家）
 --          - 二次开发新增的 task_info 表（异步任务状态机 + 重试 + 幂等键）

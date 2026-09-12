@@ -94,6 +94,6 @@ sky:
     model: ${SKY_AI_MODEL:deepseek-chat}
 
   jwt:
-    admin-secret-key: itcast
+    admin-secret-key: campus-food-service-secret
     admin-ttl: 7200000
     admin-token-name: token
