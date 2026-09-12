@@ -1,0 +1,66 @@
+server:
+  port: 8080
+
+spring:
+  profiles:
+    active: dev
+  main:
+    allow-circular-references: true
+  datasource:
+    druid:
+      driver-class-name: ${sky.datasource.driver-class-name}
+      url: jdbc:mysql://${sky.datasource.host}:${sky.datasource.port}/${sky.datasource.database}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true
+      username: ${sky.datasource.username}
+      password: ${sky.datasource.password}
+  redis:
+   host: ${sky.redis.host}
+   port: ${sky.redis.port}
+   database: ${sky.redis.database}
+  rabbitmq:
+    host: localhost
+    port: 5672
+    virtual-host: /
+    username: guest
+    password: guest
+    listener:
+      simple:
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1000
+          multiplier: 2.0
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.sky.entity
+
+logging:
+  level:
+    com.sky:
+      mapper: debug
+      service: info
+      controller: info
+    # 👇 注意缩进！不要缩进到 com.sky 里面去
+    org.springframework.web.servlet: DEBUG
+    org.springframework.web.servlet.resource: DEBUG
+
+
+sky:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    host: localhost
+    port: 3306
+    database: sky_take_out
+    username: root
+    password: ${SKY_DB_PASSWORD:please-set-in-application-dev.yml}
+  ai:
+    qwen:
+      api-key: ${AI_QWEN_API_KEY:default-fake-key}
+      base-url: ${AI_QWEN_BASE_URL:https://dashscope.aliyuncs.com/api/v1}
+
+  jwt:
+    admin-secret-key: itcast
+    admin-ttl: 7200000
+    admin-token-name: token
